@@ -1,1 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>目标追踪</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;background:#f5f5f7;color:#1d1d1f;font-size:14px}
+.header{background:#fff;padding:16px;border-bottom:1px solid #e5e5e5;position:sticky;top:0;z-index:10}
+.header-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.header-title{font-size:17px;font-weight:600}
+.header-sub{font-size:12px;color:#888;margin-top:2px}
+.top-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:#f5f5f7;border-radius:10px;padding:10px 12px;text-align:center}
+.stat-val{font-size:20px;font-weight:600;color:#1d1d1f}
+.stat-label{font-size:11px;color:#888;margin-top:2px}
+.send-btn{background:#0066ff;color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap}
+.send-btn:active{opacity:.8}
+.content{padding:12px}
+.obj-block{background:#fff;border-radius:12px;margin-bottom:12px;overflow:hidden}
+.obj-header{padding:12px 14px;display:flex;justify-content:space-between;align-items:center;cursor:pointer}
+.obj-title{font-size:15px;font-weight:600}
+.obj-progress{display:flex;align-items:center;gap:8px}
+.obj-pct{font-size:13px;font-weight:500}
+.pct-green{color:#34c759}.pct-blue{color:#007aff}.pct-amber{color:#ff9500}.pct-red{color:#ff3b30}
+.fill-green{background:#34c759}.fill-blue{background:#007aff}.fill-amber{background:#ff9500}.fill-red{background:#ff3b30}
+.chevron{font-size:12px;color:#c7c7cc;transition:transform .2s}
+.chevron.open{transform:rotate(90deg)}
+.goal-section{border-top:1px solid #f2f2f7}
+.goal-header{padding:10px 14px 6px;display:flex;justify-content:space-between;align-items:center}
+.goal-name{font-size:13px;font-weight:500;color:#1d1d1f}
+.goal-right{display:flex;align-items:center;gap:6px}
+.month-tag{font-size:11px;padding:2px 7px;border-radius:20px;font-weight:500}
+.tag-this{background:#e8f0fe;color:#0066ff}
+.tag-past{background:#e8f7e8;color:#34c759}
+.tag-future{background:#f2f2f7;color:#888}
+.goal-pct-small{font-size:12px;font-weight:500}
+.prog-wrap{padding:0 14px 8px}
+.prog-bg{height:3px;background:#f2f2f7;border-radius:2px;overflow:hidden}
+.prog-fill{height:100%;border-radius:2px;transition:width .4s}
+.steps-wrap{padding:0 14px 10px}
+.step-row{display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid #f9f9f9;cursor:pointer}
+.step-row:last-child{border-bottom:none}
+.step-circle{width:20px;height:20px;border-radius:50%;border:1.5px solid #d1d1d6;flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.step-circle.done{background:#34c759;border-color:#34c759}
+.check-icon{display:none;width:10px;height:10px}
+.step-circle.done .check-icon{display:block}
+.step-text{flex:1}
+.step-label{font-size:13px;color:#1d1d1f;line-height:1.4}
+.step-label.done{color:#c7c7cc;text-decoration:line-through}
+.note-box{margin-top:4px}
+.note-input{width:100%;font-size:12px;color:#555;background:#f9f9f9;border:1px solid #e5e5e5;border-radius:6px;padding:5px 8px;font-family:inherit;resize:none;line-height:1.4}
+.note-input:focus{outline:none;border-color:#007aff}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.8);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:100;white-space:nowrap}
+.toast.show{opacity:1}
+.sending{background:#ff9500}
+.name-bar{padding:0 16px 12px;display:flex;align-items:center;gap:8px}
+.name-bar label{font-size:13px;color:#888;white-space:nowrap}
+.name-input{flex:1;font-size:13px;border:1px solid #e5e5e5;border-radius:8px;padding:6px 10px;font-family:inherit;background:#f9f9f9}
+.name-input:focus{outline:none;border-color:#007aff;background:#fff}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <div>
+      <div class="header-title">月度目标追踪</div>
+      <div class="header-sub" id="date-str"></div>
+    </div>
+    <button class="send-btn" onclick="sendToDingTalk()">发送汇报</button>
+  </div>
+  <div class="name-bar">
+    <label>姓名</label>
+    <input class="name-input" id="user-name" placeholder="填写你的姓名" oninput="saveName()">
+  </div>
+  <div class="top-stats">
+    <div class="stat"><div class="stat-val" id="s-done">0</div><div class="stat-label">已完成步骤</div></div>
+    <div class="stat"><div class="stat-val" id="s-pct">0%</div><div class="stat-label">整体进度</div></div>
+    <div class="stat"><div class="stat-val" id="s-block">0</div><div class="stat-label">当前卡点</div></div>
+  </div>
+</div>
+
+<div class="content" id="main-content"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const WEBHOOK = 'https://oapi.dingtalk.com/robot/send?access_token=a39ef15f0119a53ea24b18e8aaae6d3f70b71d0d0d0bf97ddcbcb2ad51a8cce0';
+const SECRET  = 'SECd61d7be1a8c3ffb125c1993d463cdd3245fd68a8502b13d5963d9af0399ed07b';
+const THIS_MONTH = '3月';
+const STORE_KEY = 'mgr_tracker_v1';
+
+const DEFAULT_DATA = [
+  {
+    obj:'培训',
+    goals:[
+      {name:'NotebookLM培训',month:'3月',steps:[
+        {label:'整理使用环境',done:false,note:''},
+        {label:'交付/培训使用方法',done:false,note:''},
+        {label:'催促主管使用、完善花名册',done:false,note:''},
+        {label:'搭建知识库——花名册自动化',done:false,note:''},
+      ]},
+      {name:'提示词教学培训',month:'3月',steps:[
+        {label:'培训ai时代思想——拆解手头工作，形成SOP',done:false,note:''},
+        {label:'培训如何制作提示词、建立单业务agent',done:false,note:''},
+        {label:'检查/验收agent，跟踪助理使用调整情况',done:false,note:''},
+        {label:'genspark培训',done:false,note:''},
+      ]}
+    ]
+  },
+  {
+    obj:'自动化',
+    goals:[
+      {name:'n8n / coze学习',month:'3月',steps:[
+        {label:'部署n8n社区版，本地和服务器都试一下',done:false,note:''},
+        {label:'跟据Claude，学习如何搭建工作流环境',done:false,note:''},
+        {label:'rpa+agent 实现boss直聘，拿出落地方案',done:false,note:''},
+        {label:'拿出最后落地方案',done:false,note:''},
+      ]},
+      {name:'人事面试数据自动分析',month:'3月',steps:[
+        {label:'dingtalk 面试会议自动化流程',done:false,note:''},
+        {label:'面试人员打分/面试hr问题打分/提出意见',done:false,note:''},
+        {label:'流程打通验收',done:false,note:''},
+      ]},
+      {name:'花名册',month:'3月',steps:[
+        {label:'催促主管完善岗位知识库',done:false,note:''},
+        {label:'自动发送岗位培训计划',done:false,note:''},
+        {label:'根据需求增加功能',done:false,note:''},
+      ]}
+    ]
+  },
+  {
+    obj:'聊天记录系统',
+    goals:[
+      {name:'半成品系统落地',month:'3月',steps:[
+        {label:'测试不同版本prompt提示词',done:false,note:''},
+        {label:'折中版20秒运算完成，出分数',done:false,note:''},
+        {label:'正式上线给主管使用',done:false,note:''},
+      ]}
+    ]
+  }
+];
+
+let data = loadData();
+let collapsed = {};
+
+function loadData(){
+  try{
+    const s = localStorage.getItem(STORE_KEY);
+    return s ? JSON.parse(s) : JSON.parse(JSON.stringify(DEFAULT_DATA));
+  }catch(e){return JSON.parse(JSON.stringify(DEFAULT_DATA));}
+}
+function saveData(){localStorage.setItem(STORE_KEY,JSON.stringify(data));}
+function saveName(){localStorage.setItem('mgr_name',document.getElementById('user-name').value);}
+
+function calcPct(steps){
+  if(!steps.length)return 0;
+  return Math.round(steps.filter(s=>s.done).length/steps.length*100);
+}
+function getColor(pct){
+  if(pct>=100)return['green','green'];
+  if(pct>=60)return['blue','blue'];
+  if(pct>=30)return['amber','amber'];
+  return['red','red'];
+}
+function monthTag(m){
+  const order=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+  const ti=order.indexOf(THIS_MONTH),mi=order.indexOf(m);
+  if(mi===ti)return'tag-this';
+  if(mi<ti)return'tag-past';
+  return'tag-future';
+}
+
+function updateStats(){
+  const all=data.flatMap(o=>o.goals.flatMap(g=>g.steps));
+  const done=all.filter(s=>s.done).length;
+  const pct=all.length?Math.round(done/all.length*100):0;
+  const blocks=data.flatMap(o=>o.goals.flatMap(g=>g.steps)).filter(s=>!s.done&&s.note&&s.note.trim()).length;
+  document.getElementById('s-done').textContent=done;
+  document.getElementById('s-pct').textContent=pct+'%';
+  document.getElementById('s-block').textContent=blocks;
+}
+
+function render(){
+  updateStats();
+  const el=document.getElementById('main-content');
+  el.innerHTML=data.map((obj,oi)=>{
+    const allSteps=obj.goals.flatMap(g=>g.steps);
+    const pct=calcPct(allSteps);
+    const[pc,fc]=getColor(pct);
+    const isOpen=collapsed[oi]!==true;
+    return `<div class="obj-block">
+      <div class="obj-header" onclick="toggleObj(${oi})">
+        <span class="obj-title">${obj.obj}</span>
+        <div class="obj-progress">
+          <span class="obj-pct pct-${pc}">${pct}%</span>
+          <span class="chevron ${isOpen?'open':''}">▶</span>
+        </div>
+      </div>
+      <div id="obj-body-${oi}" style="display:${isOpen?'block':'none'}">
+        ${obj.goals.map((g,gi)=>{
+          const gp=calcPct(g.steps);
+          const[gc2,gf2]=getColor(gp);
+          return `<div class="goal-section">
+            <div class="goal-header">
+              <span class="goal-name">${g.name}</span>
+              <div class="goal-right">
+                <span class="month-tag ${monthTag(g.month)}">${g.month}</span>
+                <span class="goal-pct-small pct-${gc2}">${gp}%</span>
+              </div>
+            </div>
+            <div class="prog-wrap"><div class="prog-bg"><div class="prog-fill fill-${gf2}" style="width:${gp}%"></div></div></div>
+            <div class="steps-wrap">
+              ${g.steps.map((s,si)=>`
+                <div class="step-row" onclick="toggleStep(${oi},${gi},${si})">
+                  <div class="step-circle ${s.done?'done':''}">
+                    <svg class="check-icon" viewBox="0 0 10 10" fill="none">
+                      <path d="M1.5 5L4 7.5L8.5 2.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </div>
+                  <div class="step-text">
+                    <div class="step-label ${s.done?'done':''}">${s.label}</div>
+                    <div class="note-box" onclick="event.stopPropagation()">
+                      <textarea class="note-input" rows="1" placeholder="卡点或备注（选填）..."
+                        oninput="autoResize(this);saveNote(${oi},${gi},${si},this.value)"
+                      >${s.note||''}</textarea>
+                    </div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }).join('');
+
+  document.querySelectorAll('.note-input').forEach(autoResize);
+}
+
+function autoResize(el){
+  el.style.height='auto';
+  el.style.height=el.scrollHeight+'px';
+}
+
+function toggleObj(oi){
+  collapsed[oi]=collapsed[oi]!==true;
+  render();
+}
+
+function toggleStep(oi,gi,si){
+  data[oi].goals[gi].steps[si].done=!data[oi].goals[gi].steps[si].done;
+  saveData();render();
+}
+
+function saveNote(oi,gi,si,val){
+  data[oi].goals[gi].steps[si].note=val;
+  saveData();updateStats();
+}
+
+function toast(msg,type=''){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.className='toast show '+(type||'');
+  setTimeout(()=>t.className='toast',2500);
+}
+
+async function sign(){
+  const ts=Date.now();
+  const str=ts+'\n'+SECRET;
+  const enc=new TextEncoder();
+  const key=await crypto.subtle.importKey('raw',enc.encode(SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const sig=await crypto.subtle.sign('HMAC',key,enc.encode(str));
+  const b64=btoa(String.fromCharCode(...new Uint8Array(sig)));
+  return{ts,sign:encodeURIComponent(b64)};
+}
+
+async function sendToDingTalk(){
+  const name=document.getElementById('user-name').value.trim()||'主管';
+  const now=new Date();
+  const dateStr=`${now.getMonth()+1}月${now.getDate()}日`;
+
+  let text=`## ${name} · 目标进度汇报 ${dateStr}\n\n`;
+
+  data.forEach(obj=>{
+    const allSteps=obj.goals.flatMap(g=>g.steps);
+    const pct=calcPct(allSteps);
+    const bar='█'.repeat(Math.round(pct/10))+'░'.repeat(10-Math.round(pct/10));
+    text+=`**${obj.obj}** ${bar} ${pct}%\n`;
+    obj.goals.forEach(g=>{
+      if(g.month!==THIS_MONTH)return;
+      const gp=calcPct(g.steps);
+      text+=`> ${g.name}：${gp}%\n`;
+      g.steps.forEach(s=>{
+        text+=`> ${s.done?'✅':'⬜'} ${s.label}`;
+        if(s.note&&s.note.trim())text+=` ——卡点：${s.note.trim()}`;
+        text+='\n';
+      });
+    });
+    text+='\n';
+  });
+
+  const blocks=data.flatMap(o=>o.goals.flatMap(g=>g.steps)).filter(s=>!s.done&&s.note&&s.note.trim());
+  if(blocks.length){
+    text+=`**当前卡点（${blocks.length}个）**\n`;
+    blocks.forEach(s=>{text+=`> ${s.label}：${s.note.trim()}\n`;});
+  }
+
+  toast('发送中...','sending');
+  try{
+    const{ts,sign:sig}=await sign();
+    const url=WEBHOOK+'&timestamp='+ts+'&sign='+sig;
+    const res=await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({msgtype:'markdown',markdown:{title:`${name}目标汇报`,text}})
+    });
+    const json=await res.json();
+    if(json.errcode===0){toast('发送成功 ✓');}
+    else{toast('发送失败：'+json.errmsg);}
+  }catch(e){
+    toast('网络错误，请重试');
+  }
+}
+
+const now=new Date();
+document.getElementById('date-str').textContent=
+  `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日`;
+
+const savedName=localStorage.getItem('mgr_name')||'';
+document.getElementById('user-name').value=savedName;
+
+render();
+</script>
+</body>
+</html>
 

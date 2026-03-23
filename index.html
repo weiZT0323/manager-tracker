@@ -17,6 +17,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei
 .stat-label{font-size:11px;color:#888;margin-top:2px}
 .send-btn{background:#0066ff;color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap}
 .send-btn:active{opacity:.8}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:flex-end;justify-content:center}
+.modal-bg.show{display:flex}
+.modal{background:#fff;border-radius:16px 16px 0 0;padding:20px 16px;width:100%;max-width:600px;max-height:80vh;display:flex;flex-direction:column}
+.modal-title{font-size:16px;font-weight:600;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+.modal-close{font-size:20px;color:#888;cursor:pointer;line-height:1}
+.modal-text{flex:1;overflow-y:auto;background:#f5f5f7;border-radius:10px;padding:12px;font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-all;color:#1d1d1f;margin-bottom:12px;min-height:200px}
+.copy-btn{background:#0066ff;color:#fff;border:none;border-radius:10px;padding:12px;font-size:15px;font-weight:500;cursor:pointer;width:100%}
+.copy-btn:active{opacity:.8}
+.copy-btn.copied{background:#34c759}
 .content{padding:12px}
 .obj-block{background:#fff;border-radius:12px;margin-bottom:12px;overflow:hidden}
 .obj-header{padding:12px 14px;display:flex;justify-content:space-between;align-items:center;cursor:pointer}
@@ -69,7 +78,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei
       <div class="header-title">月度目标追踪</div>
       <div class="header-sub" id="date-str"></div>
     </div>
-    <button class="send-btn" onclick="sendToDingTalk()">发送汇报</button>
+    <button class="send-btn" onclick="generateReport()">生成汇报</button>
   </div>
   <div class="name-bar">
     <label>姓名</label>
@@ -84,6 +93,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei
 
 <div class="content" id="main-content"></div>
 <div class="toast" id="toast"></div>
+
+<div class="modal-bg" id="modal-bg" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-title">
+      <span>今日汇报</span>
+      <span class="modal-close" onclick="document.getElementById('modal-bg').classList.remove('show')">×</span>
+    </div>
+    <div class="modal-text" id="modal-text"></div>
+    <button class="copy-btn" id="copy-btn" onclick="copyText()">复制 · 粘贴到钉钉群</button>
+  </div>
+</div>
 
 <script>
 const WEBHOOK = 'https://oapi.dingtalk.com/robot/send?access_token=a39ef15f0119a53ea24b18e8aaae6d3f70b71d0d0d0bf97ddcbcb2ad51a8cce0';
@@ -265,62 +285,66 @@ function toast(msg,type=''){
   setTimeout(()=>t.className='toast',2500);
 }
 
-async function sign(){
-  const ts=Date.now();
-  const str=ts+'\n'+SECRET;
-  const enc=new TextEncoder();
-  const key=await crypto.subtle.importKey('raw',enc.encode(SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
-  const sig=await crypto.subtle.sign('HMAC',key,enc.encode(str));
-  const b64=btoa(String.fromCharCode(...new Uint8Array(sig)));
-  return{ts,sign:encodeURIComponent(b64)};
+function closeModal(e){
+  if(e.target===document.getElementById('modal-bg'))
+    document.getElementById('modal-bg').classList.remove('show');
 }
 
-async function sendToDingTalk(){
+function generateReport(){
   const name=document.getElementById('user-name').value.trim()||'主管';
   const now=new Date();
   const dateStr=`${now.getMonth()+1}月${now.getDate()}日`;
-
-  let text=`## ${name} · 目标进度汇报 ${dateStr}\n\n`;
+  let text=`【目标进度汇报】${name} · ${dateStr}\n`;
+  text+='─'.repeat(20)+'\n';
 
   data.forEach(obj=>{
     const allSteps=obj.goals.flatMap(g=>g.steps);
     const pct=calcPct(allSteps);
     const bar='█'.repeat(Math.round(pct/10))+'░'.repeat(10-Math.round(pct/10));
-    text+=`**${obj.obj}** ${bar} ${pct}%\n`;
+    text+=`\n▍${obj.obj}  ${bar} ${pct}%\n`;
     obj.goals.forEach(g=>{
       if(g.month!==THIS_MONTH)return;
       const gp=calcPct(g.steps);
-      text+=`> ${g.name}：${gp}%\n`;
+      text+=`  ${g.name}：${gp}%\n`;
       g.steps.forEach(s=>{
-        text+=`> ${s.done?'✅':'⬜'} ${s.label}`;
-        if(s.note&&s.note.trim())text+=` ——卡点：${s.note.trim()}`;
+        text+=`  ${s.done?'✅':'⬜'} ${s.label}`;
+        if(s.note&&s.note.trim())text+=`\n     ↳ ${s.note.trim()}`;
         text+='\n';
       });
     });
-    text+='\n';
   });
 
   const blocks=data.flatMap(o=>o.goals.flatMap(g=>g.steps)).filter(s=>!s.done&&s.note&&s.note.trim());
   if(blocks.length){
-    text+=`**当前卡点（${blocks.length}个）**\n`;
-    blocks.forEach(s=>{text+=`> ${s.label}：${s.note.trim()}\n`;});
+    text+='\n─'.repeat(20)+'\n';
+    text+=`⚠️ 当前卡点（${blocks.length}个）\n`;
+    blocks.forEach(s=>{text+=`  · ${s.label}：${s.note.trim()}\n`;});
   }
 
-  toast('发送中...','sending');
-  try{
-    const{ts,sign:sig}=await sign();
-    const url=WEBHOOK+'&timestamp='+ts+'&sign='+sig;
-    const res=await fetch(url,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({msgtype:'markdown',markdown:{title:`${name}目标汇报`,text}})
-    });
-    const json=await res.json();
-    if(json.errcode===0){toast('发送成功 ✓');}
-    else{toast('发送失败：'+json.errmsg);}
-  }catch(e){
-    toast('网络错误，请重试');
-  }
+  document.getElementById('modal-text').textContent=text;
+  document.getElementById('copy-btn').textContent='复制 · 粘贴到钉钉群';
+  document.getElementById('copy-btn').className='copy-btn';
+  document.getElementById('modal-bg').classList.add('show');
+}
+
+function copyText(){
+  const text=document.getElementById('modal-text').textContent;
+  navigator.clipboard.writeText(text).then(()=>{
+    const btn=document.getElementById('copy-btn');
+    btn.textContent='已复制 ✓';
+    btn.className='copy-btn copied';
+    setTimeout(()=>{
+      btn.textContent='复制 · 粘贴到钉钉群';
+      btn.className='copy-btn';
+    },2000);
+  }).catch(()=>{
+    const el=document.getElementById('modal-text');
+    const range=document.createRange();
+    range.selectNode(el);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+    toast('请手动长按选择复制');
+  });
 }
 
 const now=new Date();
@@ -334,4 +358,3 @@ render();
 </script>
 </body>
 </html>
-
